@@ -65,6 +65,11 @@ curl -s http://127.0.0.1:8080/healthz # ok
 
 ## 4. Сайт в вашем прокси
 
+> **Почему файл называется `zz-meet.conf`.** Если ни один сайт в вашем nginx не помечен
+> `default_server`, nginx отдаёт запросы по IP и по незнакомым доменам **первому** сайту по
+> алфавиту имён файлов. Файл `meet.conf` мог бы встать раньше вашего (например `site.conf`) и
+> перехватить такие запросы. С именем `zz-...` он всегда последний. Это проверено на стенде.
+
 Если `ss` показывает на 80/443 процесс `docker-proxy`, ваш прокси работает в Docker:
 переходите к разделу **«Прокси в Docker-контейнере»**. Если там `nginx`, `caddy` и т.п. без
 Docker, подойдут разделы ниже.
@@ -90,8 +95,8 @@ Docker, подойдут разделы ниже.
    docker compose -f docker-compose.yml -f docker-compose.shared-proxy.yml up -d --build
    ```
 
-3. **nginx в контейнере.** Положите `nginx/meet-docker.conf` (с вашим поддоменом и путями к
-   сертификату) в папку, которая смонтирована в `/etc/nginx/conf.d`, затем:
+3. **nginx в контейнере.** Положите `nginx/meet-docker.conf` под именем **`zz-meet.conf`** (с вашим
+   поддоменом и путями к сертификату) в папку, которая смонтирована в `/etc/nginx/conf.d`, затем:
 
    ```bash
    docker exec <контейнер> nginx -t && docker exec <контейнер> nginx -s reload
@@ -125,10 +130,10 @@ Docker, подойдут разделы ниже.
 ### nginx
 
 ```bash
-sudo cp nginx/meet.conf /etc/nginx/sites-available/meet.conf
-sudo sed -i 's/meet.example.com/ВАШ_ПОДДОМЕН/' /etc/nginx/sites-available/meet.conf
-sudo ln -s /etc/nginx/sites-available/meet.conf /etc/nginx/sites-enabled/
-#  если папки sites-enabled нет: sudo cp nginx/meet.conf /etc/nginx/conf.d/
+sudo cp nginx/meet.conf /etc/nginx/sites-available/zz-meet.conf
+sudo sed -i 's/meet.example.com/ВАШ_ПОДДОМЕН/' /etc/nginx/sites-available/zz-meet.conf
+sudo ln -s /etc/nginx/sites-available/zz-meet.conf /etc/nginx/sites-enabled/
+#  если папки sites-enabled нет: sudo cp nginx/meet.conf /etc/nginx/conf.d/zz-meet.conf
 
 sudo nginx -t                 # проверка: при ошибке ничего не применяется
 sudo systemctl reload nginx   # reload, не restart: текущие соединения не рвутся
@@ -138,7 +143,7 @@ sudo certbot --nginx -d ВАШ_ПОДДОМЕН
 `certbot --nginx -d` выпускает сертификат только для указанного домена и правит только
 блок с этим `server_name`.
 
-Если `APP_PORT` не 8080, поправьте `proxy_pass` в `meet.conf`.
+Если `APP_PORT` не 8080, поправьте `proxy_pass` в `zz-meet.conf`.
 
 ### Caddy (если ваш прокси Caddy)
 
@@ -228,6 +233,6 @@ cd meet && git pull && cd deploy && docker compose up -d --build
 Сервис полностью отдельный. Чтобы убрать его:
 
 ```bash
-sudo rm /etc/nginx/sites-enabled/meet.conf && sudo nginx -t && sudo systemctl reload nginx
+sudo rm /etc/nginx/sites-enabled/zz-meet.conf && sudo nginx -t && sudo systemctl reload nginx
 cd meet/deploy && docker compose down   # с флагом -v удалится и база
 ```
