@@ -1,4 +1,9 @@
 # Запуск: cd deploy && cp .env.example .env && docker compose up -d --build
+#
+# По умолчанию сайт слушает только 127.0.0.1:${APP_PORT} и ждёт, что HTTPS обеспечивает
+# уже работающий на сервере прокси (nginx и т.п., пример в deploy/nginx/meet.conf).
+# Если порты 80/443 свободны, можно поднять собственный Caddy:
+#   docker compose --profile caddy up -d --build
 services:
   postgres:
     image: postgres:16-alpine
@@ -36,6 +41,8 @@ services:
       TURN_URLS: turn:${DOMAIN:-localhost}:3478?transport=udp,turn:${DOMAIN:-localhost}:3478?transport=tcp
       TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env}
     ports:
+      # HTTP only on loopback: the reverse proxy on this host terminates TLS.
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
       - "${RTC_UDP_PORT:-50000}:${RTC_UDP_PORT:-50000}/udp"
 
   # TURN relay for participants behind strict NAT or firewalls that block direct UDP.
@@ -65,6 +72,7 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    profiles: ["caddy"]
     restart: unless-stopped
     depends_on: [app]
     ports:

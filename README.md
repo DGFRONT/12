@@ -43,18 +43,12 @@ cp .env.example .env    # заполните пароли и секреты
 docker compose up -d --build
 ```
 
-Откройте `https://localhost` (для localhost сертификат самоподписанный) и войдите под `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+Сервис слушает только `127.0.0.1:8080` и не занимает 80/443. HTTPS обеспечивает прокси на сервере:
 
-На сервере укажите в `.env` свой домен (`DOMAIN=meet.example.com`) и публичный IP (`PUBLIC_IP=...`), направьте на сервер DNS-запись и откройте порты:
+- **На 80/443 уже есть nginx или другой прокси:** добавьте ему отдельный сайт на поддомене по инструкции [deploy/DEPLOY.md](deploy/DEPLOY.md). Готовый конфиг: [deploy/nginx/meet.conf](deploy/nginx/meet.conf).
+- **Порты 80/443 свободны:** запустите со встроенным Caddy (`docker compose --profile caddy up -d --build`), он сам получит сертификат.
 
-| Порт | Зачем |
-|---|---|
-| 80/tcp, 443/tcp, 443/udp | сайт и API (Caddy сам получит сертификат Let's Encrypt) |
-| 50000/udp | звук и видео (`RTC_UDP_PORT`) |
-| 3478/tcp, 3478/udp | TURN (coturn) |
-| 49160–49200/udp | ретрансляция TURN |
-
-coturn запускается в сети хоста (`network_mode: host`), поэтому его порты публикуются без проброса.
+Порты сервиса: 50000/udp (звук и видео), 3478 tcp/udp и 49160–49200/udp (coturn).
 
 ## Разработка
 
