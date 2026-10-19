@@ -65,6 +65,63 @@ curl -s http://127.0.0.1:8080/healthz # ok
 
 ## 4. Сайт в вашем прокси
 
+Если `ss` показывает на 80/443 процесс `docker-proxy`, ваш прокси работает в Docker:
+переходите к разделу **«Прокси в Docker-контейнере»**. Если там `nginx`, `caddy` и т.п. без
+Docker, подойдут разделы ниже.
+
+### Прокси в Docker-контейнере
+
+Для прокси в контейнере `127.0.0.1` указывает на сам контейнер, поэтому сервис подключается к
+**существующей Docker-сети прокси** и доступен в ней по имени `meet-app`. Compose-файлы вашего
+проекта при этом не меняются.
+
+1. Найдите контейнер, сеть и папку с конфигами прокси:
+
+   ```bash
+   docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
+   docker inspect <контейнер> --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+   docker inspect <контейнер> --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
+   ```
+
+2. Добавьте в `deploy/.env` строку `PROXY_NETWORK=<сеть из второй команды>` и запустите сервис с
+   подключением к этой сети:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.shared-proxy.yml up -d --build
+   ```
+
+3. **nginx в контейнере.** Положите `nginx/meet-docker.conf` (с вашим поддоменом и путями к
+   сертификату) в папку, которая смонтирована в `/etc/nginx/conf.d`, затем:
+
+   ```bash
+   docker exec <контейнер> nginx -t && docker exec <контейнер> nginx -s reload
+   ```
+
+   В этом конфиге адрес `meet-app` определяется при каждом запросе, а не при старте nginx.
+   Поэтому если сервис конференций остановлен, ваш nginx всё равно запустится, а поддомен
+   конференций будет отвечать 502. С обычным `proxy_pass http://meet-app:8080` nginx бы не
+   прошёл проверку конфигурации и не поднялся после перезапуска контейнера.
+
+   Сертификат для поддомена выпускается тем же способом, что и для ваших сайтов (certbot с
+   webroot, отдельный контейнер certbot и т.п.).
+
+4. **Traefik.** Добавьте сервису `app` метки (например в `docker-compose.shared-proxy.yml`):
+
+   ```yaml
+   labels:
+     - traefik.enable=true
+     - traefik.docker.network=<сеть прокси>
+     - traefik.http.routers.meet.rule=Host(`meet.example.com`)
+     - traefik.http.routers.meet.entrypoints=websecure
+     - traefik.http.routers.meet.tls.certresolver=<ваш resolver>
+     - traefik.http.services.meet.loadbalancer.server.port=8080
+   ```
+
+5. **Caddy в контейнере.** Добавьте в Caddyfile блок
+   `meet.example.com { reverse_proxy meet-app:8080 }` и выполните
+   `docker exec <контейнер> caddy reload --config /etc/caddy/Caddyfile`.
+
+
 ### nginx
 
 ```bash

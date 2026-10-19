@@ -1,0 +1,17 @@
+# Подключает сервис к Docker-сети уже работающего прокси (nginx, Caddy, Traefik в контейнере).
+# Проект, которому принадлежит сеть, при этом не меняется.
+#
+#   PROXY_NETWORK=<имя сети прокси> docker compose -f docker-compose.yml -f docker-compose.shared-proxy.yml up -d --build
+#
+# В сети прокси сервис доступен по имени meet-app:8080.
+services:
+  app:
+    networks:
+      default:
+      proxy:
+        aliases: [meet-app]
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?set PROXY_NETWORK in .env}
