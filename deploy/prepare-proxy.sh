@@ -56,10 +56,12 @@ for p in 8080/tcp 50000/udp 3478/udp 3478/tcp; do
   fi
 done
 
+HAVE_IMAGE=1
 if docker image inspect "${APP_IMAGE:-vcos-app:latest}" >/dev/null 2>&1; then
   ok "образ ${APP_IMAGE:-vcos-app:latest} загружен"
 else
-  warn "образа ${APP_IMAGE:-vcos-app:latest} нет: загрузите его (docker load -i vcos-app.tar.gz) или соберите (docker compose build)"
+  HAVE_IMAGE=0
+  warn "образа ${APP_IMAGE:-vcos-app:latest} пока нет — команда сборки будет в плане ниже"
 fi
 
 # ---------------------------------------------------------------- proxy
@@ -72,23 +74,140 @@ fi
 IMAGE="$(docker inspect "$PROXY" --format '{{.Config.Image}}')"
 ok "контейнер: $PROXY (образ $IMAGE)"
 
-if ! docker exec "$PROXY" nginx -v >/dev/null 2>&1; then
-  fail "в контейнере не nginx. Пришлите вывод этого скрипта — подготовлю вариант для $IMAGE."
-  exit 1
-fi
-ok "это nginx"
-
 NETWORK="$(docker inspect "$PROXY" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' | grep -v '^$' | head -1)"
 if [[ "$NETWORK" == "host" || "$NETWORK" == "bridge" ]]; then
   warn "контейнер в сети '$NETWORK': в ней Docker не даёт обращаться к контейнерам по имени. Пришлите вывод скрипта."
 fi
 ok "сеть прокси: $NETWORK"
 
-# Host directory mounted at the given container path (exact match or parent).
+# Host path mounted at the given container path (exact match).
 mount_src() {
   docker inspect "$PROXY" --format '{{range .Mounts}}{{.Destination}}|{{.Source}}{{"\n"}}{{end}}' |
     awk -F'|' -v d="$1" '$1==d {print $2; exit}'
 }
+
+# .env with generated secrets; an existing one is kept (it holds the passwords in use).
+write_env() {
+  if [[ -f "$OUT/.env" ]]; then
+    ok "$OUT/.env уже есть — не перезаписываю (там ваши пароли)"
+    return
+  fi
+  local admin_password
+  admin_password="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)"
+  sed -e "s|^DOMAIN=.*|DOMAIN=$DOMAIN|" \
+      -e "s|^PUBLIC_IP=.*|PUBLIC_IP=$PUBLIC_IP|" \
+      -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" \
+      -e "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" \
+      -e "s|^TURN_SECRET=.*|TURN_SECRET=$(openssl rand -hex 32)|" \
+      -e "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=$admin_password|" \
+      .env.example > "$OUT/.env"
+  echo "PROXY_NETWORK=$NETWORK" >> "$OUT/.env"
+  chmod 600 "$OUT/.env"
+  ok "$OUT/.env (секреты сгенерированы; пароль администратора admin: $admin_password)"
+}
+
+C="docker compose -f docker-compose.yml -f docker-compose.shared-proxy.yml"
+plan_start() {
+  echo
+  if [[ "$HAVE_IMAGE" != 1 ]]; then
+    echo "  # 6.0 Собрать образ (1–3 минуты)"
+    echo "  (cd .. && docker build -t vcos-app:latest -f deploy/Dockerfile .)"
+    echo
+  fi
+  cat <<EOF
+  # 6.1 Запустить сервис (порты 80/443 он не занимает)
+  cp $OUT/.env .env
+  $C up -d
+  curl -s http://127.0.0.1:\${APP_PORT:-8080}/healthz     # ожидается: ok
+EOF
+}
+
+# ---------------------------------------------------------------- Caddy
+if docker exec "$PROXY" caddy version >/dev/null 2>&1; then
+  ok "это Caddy $(docker exec "$PROXY" caddy version 2>/dev/null | awk '{print $1}')"
+  ARGS="$(docker inspect "$PROXY" --format '{{join .Config.Entrypoint " "}} {{join .Config.Cmd " "}}')"
+  CONFIG_IN="$(grep -Eo -- '--config[ =][^ ]+' <<<"$ARGS" | head -1 | sed -E 's/--config[ =]//' || true)"
+  CONFIG_IN="${CONFIG_IN:-/etc/caddy/Caddyfile}"
+  if grep -Eq -- '--adapter[ =]json' <<<"$ARGS" || [[ "$CONFIG_IN" == *.json ]]; then
+    fail "Caddy работает с JSON-конфигом ($CONFIG_IN). Пришлите вывод скрипта."
+    exit 1
+  fi
+  CADDYFILE="$(mount_src "$CONFIG_IN")"
+  if [[ -z "$CADDYFILE" ]]; then
+    DIR="$(mount_src "$(dirname "$CONFIG_IN")")"
+    [[ -n "$DIR" ]] && CADDYFILE="$DIR/$(basename "$CONFIG_IN")"
+  fi
+  if [[ -z "$CADDYFILE" || ! -f "$CADDYFILE" ]]; then
+    fail "не нашёл на сервере файл $CONFIG_IN. Пришлите вывод:"
+    echo "    docker inspect $PROXY --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'"
+    exit 1
+  fi
+  ok "Caddyfile на сервере: $CADDYFILE (в контейнере $CONFIG_IN)"
+  SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO="sudo "
+  if grep -Fq "$DOMAIN" "$CADDYFILE"; then
+    fail "$DOMAIN уже упоминается в Caddyfile — проверьте, не занят ли поддомен"
+    exit 1
+  fi
+  if grep -Eq '^[[:space:]]*admin[[:space:]]+off' "$CADDYFILE"; then
+    fail "в Caddyfile выключен admin API (admin off): перечитать конфиг без перезапуска Caddy нельзя. Пришлите вывод скрипта."
+    exit 1
+  fi
+  # A first HTTPS site makes Caddy redirect every other host on port 80 to HTTPS (checked on a test Caddy).
+  if docker exec "$PROXY" caddy adapt --config "$CONFIG_IN" --adapter caddyfile 2>/dev/null | grep -q '":443"'; then
+    ok "в Caddy уже есть HTTPS-сайты — для ваших сайтов ничего не изменится"
+  else
+    warn "в Caddy сейчас нет HTTPS-сайтов. После добавления нашего блока запросы на порт 80 по IP и по чужим доменам"
+    warn "будут перенаправляться на HTTPS (ваши http://-сайты продолжат отвечать как раньше). Если это важно — напишите."
+  fi
+  ok "Caddy сам выпустит сертификат для $DOMAIN (certbot не нужен)"
+
+  step "4. Файлы в deploy/$OUT/"
+  cat > "$OUT/vcos.caddy" <<EOF
+
+# --- vcos: сервис видеоконференций (начало) ---
+$DOMAIN {
+	reverse_proxy meet-app:8080
+}
+# --- vcos (конец) ---
+EOF
+  ok "$OUT/vcos.caddy — блок, который допишется в конец Caddyfile"
+  write_env
+
+  step "5. Что выполнить (по порядку)"
+  plan_start
+  V="docker exec $PROXY caddy validate --config $CONFIG_IN --adapter caddyfile"
+  R="docker exec $PROXY caddy reload --config $CONFIG_IN --adapter caddyfile"
+  cat <<EOF
+
+  # 6.2 Резервная копия вашего Caddyfile
+  ${SUDO}cp $CADDYFILE $CADDYFILE.bak-vcos
+
+  # 6.3 Дописать наш блок в конец. Только через >> (tee -a): редактор или sed -i создают новый
+  #     файл, и контейнер с подключённым файлом продолжит видеть старый.
+  cat $OUT/vcos.caddy | ${SUDO}tee -a $CADDYFILE >/dev/null
+
+  # 6.4 Проверить и перечитать конфиг без перезапуска (при ошибке Caddy оставит старый конфиг)
+  $V && $R
+
+  # 6.5 Проверка: сертификат выпускается 10–60 секунд
+  docker logs $PROXY --since 5m 2>&1 | grep -i "$DOMAIN" | tail -5
+  curl -s https://$DOMAIN/healthz          # ожидается: ok
+
+  # 6.6 Файрвол (если включён ufw; также у провайдера, если есть свой файрвол)
+  sudo ufw allow 50000/udp && sudo ufw allow 3478 && sudo ufw allow 49160:49200/udp
+
+  # Откат в любой момент (содержимое возвращается в тот же файл):
+  cat $CADDYFILE.bak-vcos | ${SUDO}tee $CADDYFILE >/dev/null && $R
+  $C down
+EOF
+  exit 0
+fi
+
+if ! docker exec "$PROXY" nginx -v >/dev/null 2>&1; then
+  fail "в контейнере не nginx и не Caddy. Пришлите вывод этого скрипта — подготовлю вариант для $IMAGE."
+  exit 1
+fi
+ok "это nginx"
 CONF_DIR="$(mount_src /etc/nginx/conf.d)"
 if [[ -n "$CONF_DIR" ]]; then
   ok "папка конфигов на сервере: $CONF_DIR (в контейнере /etc/nginx/conf.d)"
@@ -157,32 +276,12 @@ if [[ -n "$WEBROOT" ]]; then
 fi
 ok "$OUT/zz-meet.conf (фаза 2, HTTPS)"
 
-if [[ -f "$OUT/.env" ]]; then
-  ok "$OUT/.env уже есть — не перезаписываю (там ваши пароли)"
-else
-  ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)"
-  sed -e "s|^DOMAIN=.*|DOMAIN=$DOMAIN|" \
-      -e "s|^PUBLIC_IP=.*|PUBLIC_IP=$PUBLIC_IP|" \
-      -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" \
-      -e "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" \
-      -e "s|^TURN_SECRET=.*|TURN_SECRET=$(openssl rand -hex 32)|" \
-      -e "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=$ADMIN_PASSWORD|" \
-      .env.example > "$OUT/.env"
-  echo "PROXY_NETWORK=$NETWORK" >> "$OUT/.env"
-  chmod 600 "$OUT/.env"
-  ok "$OUT/.env (секреты сгенерированы; пароль администратора admin: $ADMIN_PASSWORD)"
-fi
+write_env
 
 # ---------------------------------------------------------------- plan
 step "6. Что выполнить (по порядку)"
-C="docker compose -f docker-compose.yml -f docker-compose.shared-proxy.yml"
+plan_start
 cat <<EOF
-
-  # 6.1 Запустить сервис (порты 80/443 он не занимает).
-  #     Образ vcos-app:latest — из архива (docker load) или собранный: docker compose build
-  cp $OUT/.env .env
-  $C up -d
-  curl -s http://127.0.0.1:\${APP_PORT:-8080}/healthz     # ожидается: ok
 
   # 6.2 Фаза 1: сайт на 80 для проверки домена
   sudo cp $OUT/zz-meet.http.conf $CONF_DIR/zz-meet.conf

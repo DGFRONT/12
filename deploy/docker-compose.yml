@@ -26,7 +26,7 @@ services:
     # Ограничения, чтобы звонки не забирали ресурсы у других проектов на сервере.
     cpus: ${APP_CPUS:-2}
     mem_limit: ${APP_MEMORY:-1g}
-    # Готовый образ (docker load из архива) используется как есть; из исходников: docker compose build
+    # Готовый образ (docker load из архива) используется как есть; из исходников: (cd .. && docker build -t vcos-app:latest -f deploy/Dockerfile .)
     image: ${APP_IMAGE:-vcos-app:latest}
     build:
       context: ..
