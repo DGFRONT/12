@@ -143,6 +143,13 @@ if docker exec "$PROXY" caddy version >/dev/null 2>&1; then
     exit 1
   fi
   ok "Caddyfile на сервере: $CADDYFILE (в контейнере $CONFIG_IN)"
+  # The Caddyfile may belong to the other project's git repository.
+  if REPO="$(git -C "$(dirname "$CADDYFILE")" rev-parse --show-toplevel 2>/dev/null)" &&
+     git -C "$REPO" ls-files --error-unmatch "$CADDYFILE" >/dev/null 2>&1; then
+    warn "Caddyfile хранится в git-репозитории вашего проекта ($REPO). После правки:"
+    warn "  • git pull там может отказаться обновлять этот файл — лучше закоммитить наш блок в ваш репозиторий;"
+    warn "  • если Caddyfile перезапишется из git без нашего блока, отключится только $DOMAIN."
+  fi
   SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO="sudo "
   if grep -Fq "$DOMAIN" "$CADDYFILE"; then
     fail "$DOMAIN уже упоминается в Caddyfile — проверьте, не занят ли поддомен"
@@ -179,8 +186,8 @@ EOF
   R="docker exec $PROXY caddy reload --config $CONFIG_IN --adapter caddyfile"
   cat <<EOF
 
-  # 6.2 Резервная копия вашего Caddyfile
-  ${SUDO}cp $CADDYFILE $CADDYFILE.bak-vcos
+  # 6.2 Резервная копия вашего Caddyfile (в нашу папку, не в папку вашего проекта)
+  cp $CADDYFILE $OUT/Caddyfile.bak
 
   # 6.3 Дописать наш блок в конец. Только через >> (tee -a): редактор или sed -i создают новый
   #     файл, и контейнер с подключённым файлом продолжит видеть старый.
@@ -197,7 +204,7 @@ EOF
   sudo ufw allow 50000/udp && sudo ufw allow 3478 && sudo ufw allow 49160:49200/udp
 
   # Откат в любой момент (содержимое возвращается в тот же файл):
-  cat $CADDYFILE.bak-vcos | ${SUDO}tee $CADDYFILE >/dev/null && $R
+  cat $OUT/Caddyfile.bak | ${SUDO}tee $CADDYFILE >/dev/null && $R
   $C down
 EOF
   exit 0
