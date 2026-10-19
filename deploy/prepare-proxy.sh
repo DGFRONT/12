@@ -21,6 +21,7 @@ ok()   { printf '  \033[32m✔\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31m✘\033[0m %s\n' "$*"; }
 step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+trap 'fail "скрипт остановился на строке $LINENO. Пришлите его вывод целиком."' ERR
 
 # ---------------------------------------------------------------- DNS
 step "1. DNS"
@@ -54,6 +55,12 @@ for p in 8080/tcp 50000/udp 3478/udp 3478/tcp; do
     ok "порт $p свободен"
   fi
 done
+
+if docker image inspect "${APP_IMAGE:-vcos-app:latest}" >/dev/null 2>&1; then
+  ok "образ ${APP_IMAGE:-vcos-app:latest} загружен"
+else
+  warn "образа ${APP_IMAGE:-vcos-app:latest} нет: загрузите его (docker load -i vcos-app.tar.gz) или соберите (docker compose build)"
+fi
 
 # ---------------------------------------------------------------- proxy
 step "3. Прокси на 443"
@@ -110,7 +117,8 @@ fi
 # ---------------------------------------------------------------- certificates
 step "4. Сертификаты"
 LE_DIR="$(mount_src /etc/letsencrypt)"
-WEBROOT="$(grep -A4 'acme-challenge' <<<"$NGINX_T" | grep -m1 -Eo 'root[[:space:]]+[^;]+' | awk '{print $2}' || true)"
+# First "root" after the ACME location (a line may hold several locations, so take one match only).
+WEBROOT="$(grep -A4 'acme-challenge' <<<"$NGINX_T" | grep -Eo 'root[[:space:]]+[^;]+' | head -1 | awk '{print $2}' || true)"
 WEBROOT_SRC=""
 [[ -n "$WEBROOT" ]] && WEBROOT_SRC="$(mount_src "$WEBROOT")"
 CERTBOT="$(docker ps -a --format '{{.Names}} {{.Image}}' | awk '/certbot/ {print $1; exit}' || true)"
@@ -170,9 +178,10 @@ step "6. Что выполнить (по порядку)"
 C="docker compose -f docker-compose.yml -f docker-compose.shared-proxy.yml"
 cat <<EOF
 
-  # 6.1 Запустить сервис (порты 80/443 он не занимает)
+  # 6.1 Запустить сервис (порты 80/443 он не занимает).
+  #     Образ vcos-app:latest — из архива (docker load) или собранный: docker compose build
   cp $OUT/.env .env
-  $C up -d --build
+  $C up -d
   curl -s http://127.0.0.1:\${APP_PORT:-8080}/healthz     # ожидается: ok
 
   # 6.2 Фаза 1: сайт на 80 для проверки домена

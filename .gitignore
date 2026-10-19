@@ -1,3 +1,4 @@
 deploy/.env
 /server
 deploy/generated/
+dist/
