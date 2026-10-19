@@ -19,6 +19,13 @@ type Config struct {
 	AdminUsername string
 	AdminPassword string
 	ChatRetention time.Duration
+
+	// Media (WebRTC)
+	RTCUDPPort  int
+	RTCPublicIP string
+	STUNURLs    []string
+	TURNURLs    []string
+	TURNSecret  string
 }
 
 func Load() (Config, error) {
@@ -51,7 +58,31 @@ func Load() (Config, error) {
 		return c, errors.New("CHAT_RETENTION_DAYS must be a positive integer")
 	}
 	c.ChatRetention = time.Duration(days) * 24 * time.Hour
+
+	port, err := strconv.Atoi(env("RTC_UDP_PORT", "50000"))
+	if err != nil || port < 1 || port > 65535 {
+		return c, errors.New("RTC_UDP_PORT must be a port number")
+	}
+	c.RTCUDPPort = port
+	c.RTCPublicIP = os.Getenv("RTC_PUBLIC_IP")
+	c.STUNURLs = list(os.Getenv("STUN_URLS"))
+	c.TURNURLs = list(os.Getenv("TURN_URLS"))
+	c.TURNSecret = os.Getenv("TURN_SECRET")
+	if len(c.TURNURLs) > 0 && c.TURNSecret == "" {
+		return c, errors.New("TURN_SECRET is required when TURN_URLS is set")
+	}
 	return c, nil
+}
+
+// list splits a comma-separated value, dropping empty items.
+func list(v string) []string {
+	var out []string
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func env(key, def string) string {

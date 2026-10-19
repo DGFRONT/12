@@ -14,6 +14,7 @@ import (
 	"github.com/dgfront/12/internal/auth"
 	"github.com/dgfront/12/internal/config"
 	"github.com/dgfront/12/internal/hub"
+	"github.com/dgfront/12/internal/sfu"
 	"github.com/dgfront/12/internal/store"
 )
 
@@ -46,7 +47,21 @@ func run(log *slog.Logger) error {
 	}
 	go maintenance(ctx, st, cfg.ChatRetention, log)
 
+	media, err := sfu.New(sfu.Config{
+		UDPPort:    cfg.RTCUDPPort,
+		PublicIP:   cfg.RTCPublicIP,
+		STUNURLs:   cfg.STUNURLs,
+		TURNURLs:   cfg.TURNURLs,
+		TURNSecret: cfg.TURNSecret,
+	}, log)
+	if err != nil {
+		return err
+	}
+	defer media.Close()
+	log.Info("media enabled", "udp_port", media.Port(), "public_ip", cfg.RTCPublicIP, "turn", len(cfg.TURNURLs) > 0)
+
 	h := hub.New(st, log)
+	h.SetSFU(media)
 	if err := h.Restore(ctx); err != nil {
 		return err
 	}

@@ -24,9 +24,16 @@ type wsClient struct {
 	name string
 	conn *websocket.Conn
 	msgs chan wsMsg
+	// hook, if set, sees every message first and consumes it by returning true.
+	hook func(wsMsg) bool
 }
 
 func dialRoom(t *testing.T, base, slug, token, name string) *wsClient {
+	t.Helper()
+	return dialRoomWith(t, base, slug, token, name, nil)
+}
+
+func dialRoomWith(t *testing.T, base, slug, token, name string, hook func(*wsClient, wsMsg) bool) *wsClient {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -35,6 +42,9 @@ func dialRoom(t *testing.T, base, slug, token, name string) *wsClient {
 		t.Fatalf("%s: dial: %v", name, err)
 	}
 	c := &wsClient{t: t, name: name, conn: conn, msgs: make(chan wsMsg, 256)}
+	if hook != nil {
+		c.hook = func(m wsMsg) bool { return hook(c, m) }
+	}
 	go func() {
 		defer close(c.msgs)
 		for {
@@ -44,6 +54,9 @@ func dialRoom(t *testing.T, base, slug, token, name string) *wsClient {
 			}
 			var m wsMsg
 			json.Unmarshal(data, &m)
+			if c.hook != nil && c.hook(m) {
+				continue
+			}
 			c.msgs <- m
 		}
 	}()
@@ -54,10 +67,15 @@ func dialRoom(t *testing.T, base, slug, token, name string) *wsClient {
 
 func (c *wsClient) send(typ string, data any) {
 	c.t.Helper()
-	b, _ := json.Marshal(map[string]any{"type": typ, "data": data})
-	if err := c.conn.Write(context.Background(), websocket.MessageText, b); err != nil {
+	if err := c.trySend(typ, data); err != nil {
 		c.t.Fatalf("%s: write %s: %v", c.name, typ, err)
 	}
+}
+
+// trySend is safe to call from other goroutines.
+func (c *wsClient) trySend(typ string, data any) error {
+	b, _ := json.Marshal(map[string]any{"type": typ, "data": data})
+	return c.conn.Write(context.Background(), websocket.MessageText, b)
 }
 
 // waitFor skips other messages until one of the given type arrives and decodes it into out.

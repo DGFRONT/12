@@ -30,6 +30,38 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CHAT_RETENTION_DAYS: ${CHAT_RETENTION_DAYS:-60}
+      # Media: all audio and video go through one UDP port.
+      RTC_UDP_PORT: ${RTC_UDP_PORT:-50000}
+      RTC_PUBLIC_IP: ${PUBLIC_IP:-}
+      TURN_URLS: turn:${DOMAIN:-localhost}:3478?transport=udp,turn:${DOMAIN:-localhost}:3478?transport=tcp
+      TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env}
+    ports:
+      - "${RTC_UDP_PORT:-50000}:${RTC_UDP_PORT:-50000}/udp"
+
+  # TURN relay for participants behind strict NAT or firewalls that block direct UDP.
+  coturn:
+    image: coturn/coturn:4.6
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET}
+      - --realm=${DOMAIN:-localhost}
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+      # Do not relay into private networks.
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --external-ip=${PUBLIC_IP:-127.0.0.1}
 
   caddy:
     image: caddy:2-alpine

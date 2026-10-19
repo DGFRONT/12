@@ -22,6 +22,9 @@
   }
   function finish(reason) {
     state.done = true;
+    media.disableAll();
+    media.close();
+    syncAudio();
     const [title, text] = REASONS[reason] || ['Соединение закрыто', ''];
     $('final-title').textContent = title;
     $('final-text').textContent = text;
@@ -65,6 +68,8 @@
   };
   let ws = null;
   let attempts = 0;
+  const media = new RoomMedia((type, data) => send(type, data), () => { renderTiles(); syncAudio(); });
+  const pending = {}; // kind -> time we asked the server to switch a device on
 
   async function connect() {
     let token = guest?.token;
@@ -107,12 +112,17 @@
     },
     admitted(d) {
       state.admitted = true;
+      // A new session starts with devices off, like the server's state for it.
+      media.disableAll();
+      if (d.media) media.start(d.ice_servers);
       show('room');
       $('messages').replaceChildren();
       d.history.forEach(addMessage);
       setParticipants(d.participants);
     },
     participants: setParticipants,
+    'rtc.offer': (d) => media.offer(d),
+    'rtc.candidate': (d) => media.candidate(d),
     queue(list) {
       state.queue = list;
       renderQueue();
@@ -120,9 +130,9 @@
     'chat.message': addMessage,
     'chat.deleted'(d) { document.querySelector(`.msg[data-id="${d.id}"]`)?.remove(); },
     permission(d) {
-      // The organizer allowed a device: turn it on (in stage 3 the browser asks for consent here).
-      if (d.audio === true) { toast('Организатор разрешил вам говорить'); send('media.toggle', { kind: 'audio', enabled: true }); }
-      if (d.video === true) { toast('Организатор разрешил вам включить камеру'); send('media.toggle', { kind: 'video', enabled: true }); }
+      // The organizer allowed a device: turn it on; the browser asks for consent.
+      if (d.audio === true) { toast('Организатор разрешил вам говорить'); switchOn('audio'); }
+      if (d.video === true) { toast('Организатор разрешил вам включить камеру'); switchOn('video'); }
       if (d.audio === false || d.video === false) toast('Организатор ограничил ваши микрофон или камеру');
     },
     notice(d) { toast(d.text); },
@@ -150,7 +160,14 @@
   function setParticipants(list) {
     state.participants = list;
     const mine = selfView();
-    if (mine) state.kind = mine.kind;
+    if (mine) {
+      state.kind = mine.kind;
+      for (const kind of ['audio', 'video']) {
+        if (mine[kind]) delete pending[kind];
+        // Switched off by the organizer or permission withdrawn: release the device here too.
+        else if (media.local[kind] && !(pending[kind] > Date.now() - 3000)) media.disable(kind);
+      }
+    }
     const seats = list.filter((p) => p.kind !== 'admin').length;
     $('room-count').textContent = `${seats} из ${state.max}`;
     $('people-count').textContent = `(${list.length})`;
@@ -179,9 +196,31 @@
   const initials = (name) => name.split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase();
   const badge = (kind) => BADGES[kind] ? h('span', { class: 'badge ' + kind }, BADGES[kind]) : null;
 
+  // Video elements are kept per participant so re-rendering does not restart playback.
+  const videos = {};
+  function videoFor(p) {
+    let stream = null;
+    if (p.id === state.self) {
+      if (media.local.video) stream = new MediaStream([media.local.video]);
+    } else if (media.remote[p.id]?.getVideoTracks().length) {
+      stream = media.remote[p.id];
+    }
+    if (!stream || !p.video) { delete videos[p.id]; return null; }
+    let v = videos[p.id];
+    const same = v && v.srcObject && v.srcObject.getVideoTracks()[0] === stream.getVideoTracks()[0];
+    if (!same) {
+      v = h('video', { autoplay: true, playsinline: true, class: p.id === state.self ? 'mirror' : '' });
+      v.muted = true; // sound plays through the audio elements
+      v.srcObject = stream;
+      videos[p.id] = v;
+    }
+    v.play().catch(() => {});
+    return v;
+  }
+
   function renderTiles() {
     $('tiles').replaceChildren(...state.participants.map((p) => h('div', { class: 'tile' + (p.audio ? ' speaking' : '') },
-      h('div', { class: 'avatar' }, initials(p.name)),
+      videoFor(p) || h('div', { class: 'avatar' }, initials(p.name)),
       h('div', { class: 'label' },
         icon('audio', p.audio), icon('video', p.video),
         h('span', { class: 'name' }, p.name + (p.id === state.self ? ' (вы)' : '')),
@@ -242,7 +281,28 @@
   };
   $('admit-all').onclick = () => send('queue.admit_all');
 
-  // ---- media controls (state only until stage 3) ----
+  // ---- sound ----
+  const sinks = {};
+  function syncAudio() {
+    for (const [pid, stream] of Object.entries(media.remote)) {
+      if (pid === state.self || sinks[pid]?.srcObject === stream) continue;
+      sinks[pid]?.remove();
+      const a = h('audio', { autoplay: true });
+      a.srcObject = stream;
+      $('audio-sinks').append(a);
+      sinks[pid] = a;
+      a.play().catch(() => $('unlock-audio').classList.remove('hidden'));
+    }
+    for (const pid of Object.keys(sinks)) {
+      if (!media.remote[pid]) { sinks[pid].remove(); delete sinks[pid]; }
+    }
+  }
+  $('unlock-audio').onclick = () => {
+    Object.values(sinks).forEach((a) => a.play().catch(() => {}));
+    $('unlock-audio').classList.add('hidden');
+  };
+
+  // ---- media controls ----
   function renderControls() {
     const mine = selfView();
     if (!mine) return;
@@ -255,11 +315,26 @@
       btn.textContent = (kind === 'audio' ? 'Микрофон' : 'Камера') + (on ? ': вкл.' : ': выкл.');
     }
   }
+  async function switchOn(kind) {
+    try {
+      await media.enable(kind);
+    } catch (err) {
+      toast(kind === 'audio' ? 'Нет доступа к микрофону' : 'Нет доступа к камере', true);
+      return;
+    }
+    pending[kind] = Date.now();
+    send('media.toggle', { kind, enabled: true });
+  }
   function toggle(kind) {
     const mine = selfView();
     if (!mine) return;
-    if (!mine[kind] && !mine['allow_' + kind]) { toast('Организатор ещё не разрешил вам это включить', true); return; }
-    send('media.toggle', { kind, enabled: !mine[kind] });
+    if (mine[kind]) {
+      media.disable(kind);
+      send('media.toggle', { kind, enabled: false });
+      return;
+    }
+    if (!mine['allow_' + kind]) { toast('Организатор ещё не разрешил вам это включить', true); return; }
+    switchOn(kind);
   }
   $('mic-btn').onclick = () => toggle('audio');
   $('cam-btn').onclick = () => toggle('video');

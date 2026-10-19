@@ -19,6 +19,7 @@ import (
 	"github.com/dgfront/12/internal/auth"
 	"github.com/dgfront/12/internal/config"
 	"github.com/dgfront/12/internal/hub"
+	"github.com/dgfront/12/internal/sfu"
 	"github.com/dgfront/12/internal/store"
 )
 
@@ -57,7 +58,13 @@ func setup(t *testing.T) (*httptest.Server, *store.Store, string) {
 	}
 	cfg := config.Config{JWTSecret: []byte("test-secret-test-secret-test-secret"), PublicURL: "https://meet.test"}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	media, err := sfu.New(sfu.Config{UDPAddr: "127.0.0.1", IncludeLoopback: true}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { media.Close() })
 	h := hub.New(st, log)
+	h.SetSFU(media)
 	h.HostGrace = 300 * time.Millisecond
 	h.RejoinGrace = 2 * time.Second
 	srv := httptest.NewServer(New(cfg, st, h, log).Routes())

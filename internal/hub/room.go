@@ -9,6 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/pion/webrtc/v4"
+
+	"github.com/dgfront/12/internal/sfu"
 	"github.com/dgfront/12/internal/store"
 )
 
@@ -38,6 +41,8 @@ type Room struct {
 	hostTimer *time.Timer
 	seq       int64
 	closed    bool
+
+	media *sfu.Room // nil when media is disabled
 }
 
 // ParticipantView describes someone inside the room.
@@ -69,6 +74,8 @@ type helloData struct {
 type admittedData struct {
 	Participants []ParticipantView `json:"participants"`
 	History      []store.Message   `json:"history"`
+	Media        bool              `json:"media"`
+	ICEServers   []sfu.ICEServer   `json:"ice_servers"`
 }
 
 type reasonData struct {
@@ -171,9 +178,30 @@ func (r *Room) admitLocked(c *Client, by string) error {
 		history = []store.Message{}
 	}
 	c.admitted = true
-	c.enqueueLocked("admitted", admittedData{Participants: r.participantsLocked(), History: history})
+	data := admittedData{Participants: r.participantsLocked(), History: history, ICEServers: []sfu.ICEServer{}}
+	if r.media != nil {
+		data.Media = true
+		data.ICEServers = r.hub.sfu.ICEServers(c.pid)
+	}
+	c.enqueueLocked("admitted", data)
+	r.startMediaLocked(c)
 	r.broadcastStateLocked()
 	return nil
+}
+
+// startMediaLocked opens the participant's WebRTC session; the server sends the first offer.
+func (r *Room) startMediaLocked(c *Client) {
+	if r.media == nil {
+		return
+	}
+	signal := func(typ string, data any) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		c.enqueueLocked(typ, data)
+	}
+	if err := r.media.AddPeer(c.pid, signal); err != nil {
+		r.hub.log.Error("start media", "room", r.ID, "err", err)
+	}
 }
 
 // leaveLocked forgets the client and records why it left.
@@ -182,6 +210,9 @@ func (r *Room) leaveLocked(c *Client, reason string) {
 		return
 	}
 	delete(r.clients, c.pid)
+	if r.media != nil {
+		r.media.RemovePeer(c.pid)
+	}
 	ctx, cancel := r.hub.dbCtx()
 	defer cancel()
 	if err := r.hub.store.LeaveParticipant(ctx, c.pid, reason); err != nil {
@@ -227,6 +258,9 @@ func (r *Room) shutdown(reason string) {
 	if r.hostTimer != nil {
 		r.hostTimer.Stop()
 		r.hostTimer = nil
+	}
+	if r.media != nil {
+		r.media.Close()
 	}
 	// Participants rows were already closed by store.FinishRoom.
 	for pid, c := range r.clients {
@@ -309,6 +343,10 @@ func (r *Room) broadcastStateLocked() {
 	for _, c := range r.clients {
 		if c.admitted {
 			c.enqueueLocked("participants", participants)
+			// Media is forwarded only while it is switched on and allowed.
+			if r.media != nil {
+				r.media.SetGate(c.pid, c.audio && c.allowAudio, c.video && c.allowVideo)
+			}
 		}
 	}
 	r.broadcastQueueLocked()
@@ -381,6 +419,32 @@ func (r *Room) handle(c *Client, env envelope) {
 	}
 
 	switch env.Type {
+	case "rtc.answer":
+		var d webrtc.SessionDescription
+		if !decode(&d) || r.media == nil {
+			return
+		}
+		if err := r.media.Answer(c.pid, d); err != nil {
+			r.hub.log.Warn("apply answer", "participant", c.pid, "err", err)
+		}
+
+	case "rtc.candidate":
+		var d webrtc.ICECandidateInit
+		if !decode(&d) || r.media == nil {
+			return
+		}
+		if err := r.media.Candidate(c.pid, d); err != nil {
+			r.hub.log.Debug("add candidate", "participant", c.pid, "err", err)
+		}
+
+	case "rtc.restart":
+		// The browser lost its media connection: start a fresh one.
+		if r.media != nil {
+			r.media.RemovePeer(c.pid)
+			r.startMediaLocked(c)
+			r.broadcastStateLocked()
+		}
+
 	case "chat.send":
 		var d struct {
 			Text string `json:"text"`

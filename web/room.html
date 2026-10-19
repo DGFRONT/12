@@ -64,7 +64,8 @@
     <div class="room-body">
       <section class="stage">
         <div class="tiles" id="tiles"></div>
-        <p class="muted small stage-note">Звук и видео подключаются на этапе 3; сейчас кнопки меняют только состояние.</p>
+        <div class="stage-note"><button class="primary hidden" id="unlock-audio">Включить звук</button></div>
+        <div class="hidden" id="audio-sinks"></div>
       </section>
 
       <aside class="side">
@@ -122,6 +123,7 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="/static/api.js"></script>
+  <script src="/static/rtc.js"></script>
   <script src="/static/room.js"></script>
 </body>
 </html>

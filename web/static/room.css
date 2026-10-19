@@ -7,13 +7,15 @@
 .room-body { flex: 1; display: flex; min-height: 0; }
 
 .stage { flex: 1; padding: 16px; overflow-y: auto; }
-.stage-note { text-align: center; }
+.stage-note { text-align: center; margin-top: 12px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .tile {
   position: relative; aspect-ratio: 16 / 10; border-radius: var(--radius);
   background: #2b2f38; color: #fff; display: grid; place-items: center; overflow: hidden;
 }
 .tile.speaking { outline: 3px solid var(--ok); }
+.tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.tile video.mirror { transform: scaleX(-1); }
 .avatar {
   width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center;
   font-size: 28px; font-weight: 600; background: #4b5363;

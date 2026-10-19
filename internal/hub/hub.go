@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/dgfront/12/internal/sfu"
 	"github.com/dgfront/12/internal/store"
 )
 
@@ -44,9 +45,15 @@ type Hub struct {
 	// RejoinGrace lets a participant whose connection dropped come back without the queue.
 	RejoinGrace time.Duration
 
+	// sfu forwards audio and video; nil disables media (tests of room logic only).
+	sfu *sfu.SFU
+
 	mu    sync.Mutex
 	rooms map[string]*Room
 }
+
+// SetSFU enables audio and video forwarding.
+func (h *Hub) SetSFU(s *sfu.SFU) { h.sfu = s }
 
 func New(st *store.Store, log *slog.Logger) *Hub {
 	return &Hub{
@@ -92,6 +99,9 @@ func (h *Hub) Track(sr *store.Room) *Room {
 	}
 	if sr.HostID != nil {
 		r.hostID = *sr.HostID
+	}
+	if h.sfu != nil {
+		r.media = h.sfu.NewRoom()
 	}
 	r.mu.Lock()
 	r.startHostTimerLocked()
