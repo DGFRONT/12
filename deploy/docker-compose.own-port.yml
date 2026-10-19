@@ -1,0 +1,21 @@
+# Сайт на отдельном порту (по умолчанию 8443) с HTTPS прямо в приложении.
+# Порты 80/443 и прокси другого проекта не используются.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.own-port.yml up -d --build
+#
+# Адрес сайта: https://DOMAIN:HTTPS_PORT. Сертификат берётся из файлов и подхватывается
+# после продления автоматически (проверка раз в минуту).
+services:
+  app:
+    # Ключи Let's Encrypt в /etc/letsencrypt читает только root. Для них укажите APP_USER=0:0
+    # или копируйте сертификат в отдельную папку (см. DEPLOY.md).
+    user: ${APP_USER:-65532:65532}
+    environment:
+      PUBLIC_URL: https://${DOMAIN}:${HTTPS_PORT:-8443}
+      TLS_CERT_FILE: /certs/${TLS_CERT_PATH:?set TLS_CERT_PATH in .env}
+      TLS_KEY_FILE: /certs/${TLS_KEY_PATH:?set TLS_KEY_PATH in .env}
+    volumes:
+      # Папка монтируется целиком: в /etc/letsencrypt/live лежат ссылки на ../../archive.
+      - ${TLS_CERT_DIR:?set TLS_CERT_DIR in .env}:/certs:ro
+    ports:
+      - "${HTTPS_PORT:-8443}:8080"

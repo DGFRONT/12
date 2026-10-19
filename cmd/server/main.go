@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/dgfront/12/internal/api"
 	"github.com/dgfront/12/internal/auth"
+	"github.com/dgfront/12/internal/certs"
 	"github.com/dgfront/12/internal/config"
 	"github.com/dgfront/12/internal/hub"
 	"github.com/dgfront/12/internal/sfu"
@@ -72,10 +74,21 @@ func run(log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+	if cfg.TLSCertFile != "" {
+		reloader, err := certs.New(cfg.TLSCertFile, cfg.TLSKeyFile, time.Minute)
+		if err != nil {
+			return err
+		}
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: reloader.GetCertificate}
+	}
 	errc := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.HTTPAddr, "public_url", cfg.PublicURL)
-		errc <- srv.ListenAndServe()
+		log.Info("listening", "addr", cfg.HTTPAddr, "public_url", cfg.PublicURL, "tls", srv.TLSConfig != nil)
+		if srv.TLSConfig != nil {
+			errc <- srv.ListenAndServeTLS("", "")
+		} else {
+			errc <- srv.ListenAndServe()
+		}
 	}()
 	select {
 	case err := <-errc:

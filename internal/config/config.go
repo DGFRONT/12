@@ -20,6 +20,10 @@ type Config struct {
 	AdminPassword string
 	ChatRetention time.Duration
 
+	// Optional HTTPS served by the app itself (when 80/443 belong to another project).
+	TLSCertFile string
+	TLSKeyFile  string
+
 	// Media (WebRTC)
 	RTCUDPPort  int
 	RTCPublicIP string
@@ -65,6 +69,11 @@ func Load() (Config, error) {
 	}
 	c.RTCUDPPort = port
 	c.RTCPublicIP = os.Getenv("RTC_PUBLIC_IP")
+	c.TLSCertFile = os.Getenv("TLS_CERT_FILE")
+	c.TLSKeyFile = os.Getenv("TLS_KEY_FILE")
+	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {
+		return c, errors.New("set both TLS_CERT_FILE and TLS_KEY_FILE, or neither")
+	}
 	c.STUNURLs = list(os.Getenv("STUN_URLS"))
 	c.TURNURLs = list(os.Getenv("TURN_URLS"))
 	c.TURNSecret = os.Getenv("TURN_SECRET")

@@ -46,6 +46,7 @@ docker compose up -d --build
 Сервис слушает только `127.0.0.1:8080` и не занимает 80/443. HTTPS обеспечивает прокси на сервере:
 
 - **На 80/443 уже есть nginx или другой прокси:** добавьте ему отдельный сайт на поддомене по инструкции [deploy/DEPLOY.md](deploy/DEPLOY.md). Готовый конфиг: [deploy/nginx/meet.conf](deploy/nginx/meet.conf).
+- **Без прокси, на отдельном порту** (например `https://домен:8443`): сервис сам отдаёт HTTPS с файлами сертификата, см. [deploy/DEPLOY.md](deploy/DEPLOY.md).
 - **Порты 80/443 свободны:** запустите со встроенным Caddy (`docker compose --profile caddy up -d --build`), он сам получит сертификат.
 
 Порты сервиса: 50000/udp (звук и видео), 3478 tcp/udp и 49160–49200/udp (coturn).
@@ -79,6 +80,7 @@ TEST_DATABASE_URL='postgres://postgres:dev@localhost:5432/meet_test?sslmode=disa
 | `CHAT_RETENTION_DAYS` | `60` | сколько дней хранить архив чата |
 | `COOKIE_SECURE` | `true` при https | флаг Secure у cookie |
 | `HTTP_ADDR` | `:8080` | адрес HTTP-сервера |
+| `TLS_CERT_FILE`, `TLS_KEY_FILE` | — | включают HTTPS в самом приложении; продлённый сертификат подхватывается без перезапуска |
 | `RTC_UDP_PORT` | `50000` | UDP-порт для всех медиапотоков |
 | `RTC_PUBLIC_IP` | — | публичный IP для WebRTC-кандидатов (нужен в Docker и за NAT облака) |
 | `TURN_URLS`, `TURN_SECRET` | — | адреса coturn и общий секрет (`use-auth-secret`) |
