@@ -26,14 +26,14 @@ type Room struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	EndedAt         *time.Time `json:"ended_at"`
 	EndedBy         *string    `json:"ended_by"`
-	Online          int        `json:"online"`
+	Online          int        `json:"online"` // admitted participants who take a seat (admins do not)
 }
 
 const roomSelect = `
 	SELECT r.id, r.slug, r.name, r.owner_id, o.display_name, r.host_id, h.display_name,
 	       r.max_participants, r.status, r.created_at, r.ended_at, r.ended_by,
 	       (SELECT count(*) FROM participants p
-	         WHERE p.room_id = r.id AND p.admitted_at IS NOT NULL AND p.left_at IS NULL)
+	         WHERE p.room_id = r.id AND p.admitted_at IS NOT NULL AND p.left_at IS NULL AND p.kind <> 'admin')
 	FROM rooms r
 	LEFT JOIN users o ON o.id = r.owner_id
 	LEFT JOIN users h ON h.id = r.host_id`
@@ -98,11 +98,12 @@ func (s *Store) ListRooms(ctx context.Context, status string, limit, offset int)
 		WHERE $1 = '' OR r.status::text = $1 ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`, status, limit, offset))
 }
 
-// FinishRoom moves an active room to a final status. It returns ErrNotFound if the room is not active.
+// FinishRoom moves an active room to a final status. An empty actorID means the system ended it.
+// It returns ErrNotFound if the room is not active.
 func (s *Store) FinishRoom(ctx context.Context, id, status, actorID string) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
-			UPDATE rooms SET status = $2, ended_at = now(), ended_by = $3
+			UPDATE rooms SET status = $2, ended_at = now(), ended_by = NULLIF($3, '')::uuid
 			WHERE id = $1 AND status = 'active'`, id, status, actorID)
 		if err != nil {
 			return err
@@ -153,20 +154,27 @@ func (s *Store) RoomParticipants(ctx context.Context, roomID string) ([]Particip
 }
 
 type Message struct {
-	ID         int64     `json:"id"`
-	Author     string    `json:"author"`
-	AuthorKind string    `json:"author_kind"`
-	Body       string    `json:"body"`
-	Deleted    bool      `json:"deleted"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID            int64     `json:"id"`
+	ParticipantID string    `json:"participant_id"`
+	Author        string    `json:"author"`
+	AuthorKind    string    `json:"author_kind"`
+	Body          string    `json:"body"`
+	Deleted       bool      `json:"deleted"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // RoomMessages returns the chat log of a room, including deleted messages (flagged) for the admin archive.
 func (s *Store) RoomMessages(ctx context.Context, roomID string) ([]Message, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT m.id, p.display_name, p.kind, m.body, m.deleted_at IS NOT NULL, m.created_at
+		SELECT `+messageColumns+`
 		FROM messages m JOIN participants p ON p.id = m.participant_id
 		WHERE m.room_id = $1 ORDER BY m.id`, roomID)
+	return collectMessages(rows, err)
+}
+
+const messageColumns = `m.id, m.participant_id, p.display_name, p.kind, m.body, m.deleted_at IS NOT NULL, m.created_at`
+
+func collectMessages(rows pgx.Rows, err error) ([]Message, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +182,86 @@ func (s *Store) RoomMessages(ctx context.Context, roomID string) ([]Message, err
 	list := []Message{}
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.Author, &m.AuthorKind, &m.Body, &m.Deleted, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ParticipantID, &m.Author, &m.AuthorKind, &m.Body, &m.Deleted, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, m)
 	}
 	return list, rows.Err()
+}
+
+// ChatHistory returns the last limit visible messages of a room in chronological order.
+func (s *Store) ChatHistory(ctx context.Context, roomID string, limit int) ([]Message, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT * FROM (
+			SELECT `+messageColumns+`
+			FROM messages m JOIN participants p ON p.id = m.participant_id
+			WHERE m.room_id = $1 AND m.deleted_at IS NULL ORDER BY m.id DESC LIMIT $2
+		) t ORDER BY id`, roomID, limit)
+	return collectMessages(rows, err)
+}
+
+func (s *Store) CreateMessage(ctx context.Context, roomID, participantID, body string) (*Message, error) {
+	m := Message{ParticipantID: participantID, Body: body}
+	err := s.pool.QueryRow(ctx, `
+		WITH ins AS (
+			INSERT INTO messages (room_id, participant_id, body) VALUES ($1, $2, $3) RETURNING id, created_at
+		)
+		SELECT ins.id, ins.created_at, p.display_name, p.kind FROM ins, participants p WHERE p.id = $2`,
+		roomID, participantID, body).Scan(&m.ID, &m.CreatedAt, &m.Author, &m.AuthorKind)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// DeleteMessage hides a chat message (it stays in the admin archive). Returns ErrNotFound if absent.
+func (s *Store) DeleteMessage(ctx context.Context, roomID string, id int64) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE messages SET deleted_at = now() WHERE room_id = $1 AND id = $2 AND deleted_at IS NULL`, roomID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CreateParticipant records a join request. userID is empty for guests, ip may be empty.
+func (s *Store) CreateParticipant(ctx context.Context, roomID, userID, name, kind, ip string) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO participants (room_id, user_id, display_name, kind, ip)
+		VALUES ($1, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, '')::inet) RETURNING id`,
+		roomID, userID, name, kind, ip).Scan(&id)
+	return id, err
+}
+
+// AdmitParticipant marks a participant as let in; by is empty when nobody had to approve.
+func (s *Store) AdmitParticipant(ctx context.Context, id, by string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE participants SET admitted_at = now(), admitted_by = NULLIF($2, '')::uuid WHERE id = $1`, id, by)
+	return err
+}
+
+func (s *Store) LeaveParticipant(ctx context.Context, id, reason string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE participants SET left_at = now(), leave_reason = $2 WHERE id = $1 AND left_at IS NULL`, id, reason)
+	return err
+}
+
+func (s *Store) SetParticipantKind(ctx context.Context, id, kind string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE participants SET kind = $2 WHERE id = $1`, id, kind)
+	return err
+}
+
+func (s *Store) SetRoomHost(ctx context.Context, roomID, userID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE rooms SET host_id = $2 WHERE id = $1 AND status = 'active'`, roomID, userID)
+	return err
+}
+
+// CloseDanglingParticipants marks everyone as left; used at startup because live connections do not survive a restart.
+func (s *Store) CloseDanglingParticipants(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, `UPDATE participants SET left_at = now(), leave_reason = 'server_restart' WHERE left_at IS NULL`)
+	return err
 }
 
 // PurgeOldChats deletes chat messages of rooms finished more than retention ago and drops guest IPs.

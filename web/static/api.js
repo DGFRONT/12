@@ -67,6 +67,7 @@ const api = (() => {
     del: (p) => request('DELETE', p),
     raw: (m, p, b) => request(m, p, b, { raw: true }),
     get user() { return user; },
+    get token() { return accessToken; },
   };
 })();
 
@@ -92,4 +93,4 @@ function fmtDate(s) {
 
 const ROLE_NAMES = { admin: 'админ', user: 'пользователь' };
 const STATUS_NAMES = { active: 'идёт', ended: 'завершена', closed_by_admin: 'закрыта админом' };
-const KIND_NAMES = { host: 'хост', member: 'участник', guest: 'гость', admin: 'администратор' };
+const KIND_NAMES = { host: 'организатор', member: 'участник', guest: 'гость', admin: 'администратор' };

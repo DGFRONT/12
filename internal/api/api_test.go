@@ -18,6 +18,7 @@ import (
 
 	"github.com/dgfront/12/internal/auth"
 	"github.com/dgfront/12/internal/config"
+	"github.com/dgfront/12/internal/hub"
 	"github.com/dgfront/12/internal/store"
 )
 
@@ -55,7 +56,11 @@ func setup(t *testing.T) (*httptest.Server, *store.Store, string) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{JWTSecret: []byte("test-secret-test-secret-test-secret"), PublicURL: "https://meet.test"}
-	srv := httptest.NewServer(New(cfg, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Routes())
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := hub.New(st, log)
+	h.HostGrace = 300 * time.Millisecond
+	h.RejoinGrace = 2 * time.Second
+	srv := httptest.NewServer(New(cfg, st, h, log).Routes())
 	t.Cleanup(srv.Close)
 	return srv, st, srv.URL
 }

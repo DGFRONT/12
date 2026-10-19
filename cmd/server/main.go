@@ -13,6 +13,7 @@ import (
 	"github.com/dgfront/12/internal/api"
 	"github.com/dgfront/12/internal/auth"
 	"github.com/dgfront/12/internal/config"
+	"github.com/dgfront/12/internal/hub"
 	"github.com/dgfront/12/internal/store"
 )
 
@@ -45,9 +46,14 @@ func run(log *slog.Logger) error {
 	}
 	go maintenance(ctx, st, cfg.ChatRetention, log)
 
+	h := hub.New(st, log)
+	if err := h.Restore(ctx); err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           api.New(cfg, st, log).Routes(),
+		Handler:           api.New(cfg, st, h, log).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}

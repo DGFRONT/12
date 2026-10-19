@@ -43,6 +43,7 @@ func (s *Server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 			s.internalError(w, r, err)
 			return
 		}
+		s.hub.Track(room)
 		s.audit(r, "room.create", "room", room.ID, map[string]string{"name": room.Name})
 		writeJSON(w, http.StatusCreated, s.roomURL(room))
 		return
@@ -99,7 +100,7 @@ func (s *Server) handleEndRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "завершить комнату может только её хост")
 		return
 	}
-	if err := s.store.FinishRoom(r.Context(), room.ID, store.RoomEnded, u.ID); errors.Is(err, store.ErrNotFound) {
+	if err := s.hub.EndRoom(r.Context(), room.ID, store.RoomEnded, u.ID); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusConflict, "комната уже завершена")
 		return
 	} else if err != nil {

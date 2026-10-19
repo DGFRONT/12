@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Комната — Конференции</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/room.css">
 </head>
 <body>
-  <div class="center">
+  <!-- Before joining: room info and the guest name form -->
+  <div class="center" id="screen-prejoin">
     <div class="card narrow">
       <h2 id="room-name">Загрузка…</h2>
       <p class="muted" id="room-info"></p>
@@ -15,22 +17,110 @@
       <form id="guest-form" class="hidden">
         <div class="field">
           <label for="display-name">Как вас представить?</label>
-          <input id="display-name" maxlength="64" required placeholder="Иван Петров">
+          <input id="display-name" maxlength="64" required placeholder="Иван Петров" autocomplete="name">
         </div>
-        <button class="primary" type="submit" disabled>Попросить войти</button>
+        <button class="primary" type="submit">Попросить войти</button>
         <p class="muted small">Есть учётная запись? <a id="login-link" href="/">Войдите</a>.</p>
       </form>
 
       <div id="member-join" class="hidden">
         <p>Вы вошли как <b id="member-name"></b>.</p>
-        <button class="primary" disabled>Попросить войти</button>
+        <button class="primary" id="member-join-btn">Войти в комнату</button>
       </div>
-
-      <p class="muted small" id="stage-note">
-        Очередь, чат, звук и видео подключаются на следующих этапах разработки.
-      </p>
+      <p class="error" id="prejoin-error"></p>
     </div>
   </div>
+
+  <!-- Waiting in the queue -->
+  <div class="center hidden" id="screen-waiting">
+    <div class="card narrow">
+      <h2 id="waiting-room-name"></h2>
+      <div class="spinner"></div>
+      <p>Организатор скоро вас впустит.</p>
+      <p class="muted small">Не закрывайте страницу.</p>
+      <button id="cancel-wait">Отменить</button>
+    </div>
+  </div>
+
+  <!-- Final screen: ended, rejected, kicked -->
+  <div class="center hidden" id="screen-final">
+    <div class="card narrow">
+      <h2 id="final-title"></h2>
+      <p class="muted" id="final-text"></p>
+      <a href="/app" id="final-home">На главную</a>
+    </div>
+  </div>
+
+  <!-- Inside the room -->
+  <div class="room hidden" id="screen-room">
+    <header class="room-top">
+      <span class="brand" id="room-title"></span>
+      <span class="muted small" id="room-count"></span>
+      <span class="spacer"></span>
+      <span class="muted small hidden" id="reconnecting">Переподключение…</span>
+      <button class="danger hidden" id="end-btn">Завершить для всех</button>
+    </header>
+
+    <div class="room-body">
+      <section class="stage">
+        <div class="tiles" id="tiles"></div>
+        <p class="muted small stage-note">Звук и видео подключаются на этапе 3; сейчас кнопки меняют только состояние.</p>
+      </section>
+
+      <aside class="side">
+        <nav class="tabs side-tabs" id="side-tabs">
+          <button data-side="chat" class="active">Чат</button>
+          <button data-side="people">Участники <span id="people-count"></span></button>
+          <button data-side="queue" class="hidden" id="queue-tab">Очередь <span class="count-badge hidden" id="queue-count"></span></button>
+        </nav>
+
+        <div data-pane="chat" class="pane chat">
+          <div class="messages" id="messages"></div>
+          <form id="chat-form" class="chat-form">
+            <input id="chat-input" maxlength="2000" placeholder="Сообщение" autocomplete="off">
+            <button class="primary" type="submit">➤</button>
+          </form>
+        </div>
+
+        <div data-pane="people" class="pane hidden">
+          <ul class="people" id="people"></ul>
+        </div>
+
+        <div data-pane="queue" class="pane hidden">
+          <div class="row queue-head">
+            <span class="muted small" id="queue-seats"></span>
+            <span class="spacer"></span>
+            <button id="admit-all">Впустить всех</button>
+          </div>
+          <ul class="people" id="queue"></ul>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="controls">
+      <button id="mic-btn" class="ctl">Микрофон</button>
+      <button id="cam-btn" class="ctl">Камера</button>
+      <button id="leave-btn" class="ctl leave">Выйти</button>
+    </footer>
+  </div>
+
+  <dialog id="leave-dialog">
+    <h3>Вы организатор</h3>
+    <p class="muted small">Перед уходом передайте права другому зарегистрированному участнику или завершите конференцию.</p>
+    <div class="field" id="transfer-field">
+      <label for="transfer-to">Новый организатор</label>
+      <select id="transfer-to"></select>
+    </div>
+    <p class="muted small hidden" id="no-transfer">В комнате нет зарегистрированных участников, которым можно передать права.</p>
+    <div class="dialog-actions">
+      <button class="primary" id="transfer-leave">Передать и выйти</button>
+      <button class="danger" id="end-leave">Завершить для всех</button>
+      <button id="cancel-leave">Отмена</button>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts"></div>
+
   <script src="/static/api.js"></script>
   <script src="/static/room.js"></script>
 </body>

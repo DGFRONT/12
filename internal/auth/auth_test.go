@@ -77,3 +77,22 @@ func TestGenerators(t *testing.T) {
 		t.Fatal("password length")
 	}
 }
+
+func TestGuestToken(t *testing.T) {
+	tk := NewTokens([]byte("0123456789abcdef0123456789abcdef"))
+	s, err := tk.IssueGuest("g1", "Гость", "room123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := tk.ParseGuest(s)
+	if err != nil || c.Subject != "g1" || c.Room != "room123" || c.Name != "Гость" {
+		t.Fatalf("claims %+v err %v", c, err)
+	}
+	if _, err := tk.ParseAccess(s); err == nil {
+		t.Fatal("guest token accepted as access token")
+	}
+	access, _, _ := tk.IssueAccess("u1", "user")
+	if _, err := tk.ParseGuest(access); err == nil {
+		t.Fatal("access token accepted as guest token")
+	}
+}

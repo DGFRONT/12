@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/dgfront/12/internal/auth"
+	"github.com/dgfront/12/internal/hub"
 	"github.com/dgfront/12/internal/store"
 )
 
@@ -183,6 +184,9 @@ func (s *Server) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if patch.IsBlocked != nil && *patch.IsBlocked {
+		s.hub.DisconnectUser(id)
+	}
 	s.audit(r, "user.update", "user", id, changes)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "generated_password": generated})
 }
@@ -201,10 +205,15 @@ func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if target.Role == store.RoleAdmin && !s.otherAdminsRemain(w, r, target) {
 		return
 	}
-	if err := s.store.DeleteUser(r.Context(), id, admin.ID); err != nil {
+	closed, err := s.store.DeleteUser(r.Context(), id, admin.ID)
+	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
+	for _, roomID := range closed {
+		s.hub.Shutdown(roomID, hub.ReasonClosedByAdmin)
+	}
+	s.hub.DisconnectUser(id)
 	s.audit(r, "user.delete", "user", id, map[string]string{"username": target.Username})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -279,6 +288,7 @@ func (s *Server) handleAdminRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"room": s.roomURL(room), "participants": participants, "messages": messages,
+		"live": s.hub.Snapshot(room.ID),
 	})
 }
 
@@ -287,7 +297,7 @@ func (s *Server) handleAdminCloseRoom(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.store.FinishRoom(r.Context(), room.ID, store.RoomClosedByAdmin, currentUser(r).ID)
+	err := s.hub.EndRoom(r.Context(), room.ID, store.RoomClosedByAdmin, currentUser(r).ID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusConflict, "комната уже завершена")
 		return

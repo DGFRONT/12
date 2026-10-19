@@ -17,6 +17,7 @@ import (
 
 	"github.com/dgfront/12/internal/auth"
 	"github.com/dgfront/12/internal/config"
+	"github.com/dgfront/12/internal/hub"
 	"github.com/dgfront/12/internal/store"
 	"github.com/dgfront/12/web"
 )
@@ -26,15 +27,17 @@ const MaxRoomParticipants = 10
 type Server struct {
 	cfg     config.Config
 	store   *store.Store
+	hub     *hub.Hub
 	tokens  *auth.Tokens
 	limiter *auth.LoginLimiter
 	log     *slog.Logger
 }
 
-func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
+func New(cfg config.Config, st *store.Store, h *hub.Hub, log *slog.Logger) *Server {
 	return &Server{
 		cfg:     cfg,
 		store:   st,
+		hub:     h,
 		tokens:  auth.NewTokens(cfg.JWTSecret),
 		limiter: auth.NewLoginLimiter(5, 15*time.Minute),
 		log:     log,
@@ -59,6 +62,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/auth/refresh", s.handleRefresh)
 		r.Post("/auth/logout", s.handleLogout)
 		r.Get("/rooms/{slug}", s.handleRoomPublic)
+		r.Post("/rooms/{slug}/guest", s.handleGuestToken)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireUser)
@@ -85,6 +89,7 @@ func (s *Server) Routes() http.Handler {
 		})
 	})
 
+	r.Get("/ws/rooms/{slug}", s.handleWS)
 	r.Handle("/static/*", web.Static())
 	r.Get("/", web.Page("login.html"))
 	r.Get("/app", web.Page("app.html"))

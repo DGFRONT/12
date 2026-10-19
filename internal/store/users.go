@@ -110,12 +110,23 @@ func (s *Store) UpdateUser(ctx context.Context, id string, p UserPatch) (*User, 
 		RETURNING `+userColumns, id, p.DisplayName, p.PasswordHash, p.Role, p.IsBlocked))
 }
 
-// DeleteUser removes the user and closes the rooms they still host.
-func (s *Store) DeleteUser(ctx context.Context, id, actorID string) error {
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
+// DeleteUser removes the user, closes the rooms they still host and returns the IDs of those rooms.
+func (s *Store) DeleteUser(ctx context.Context, id, actorID string) ([]string, error) {
+	var closed []string
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
 			UPDATE rooms SET status = 'closed_by_admin', ended_at = now(), ended_by = $2
-			WHERE status = 'active' AND (owner_id = $1 OR host_id = $1)`, id, actorID); err != nil {
+			WHERE status = 'active' AND (owner_id = $1 OR host_id = $1) RETURNING id`, id, actorID)
+		if err != nil {
+			return err
+		}
+		closed, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE participants SET left_at = now(), leave_reason = 'room_closed'
+			WHERE left_at IS NULL AND room_id = ANY($1::uuid[])`, closed); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
@@ -127,6 +138,7 @@ func (s *Store) DeleteUser(ctx context.Context, id, actorID string) error {
 		}
 		return nil
 	})
+	return closed, err
 }
 
 func (s *Store) TouchLogin(ctx context.Context, id string) error {

@@ -125,15 +125,20 @@
   async function showRoom(id) {
     openRoomId = id;
     const d = await api.get('/api/admin/rooms/' + id);
-    const inside = d.participants.filter((p) => p.admitted_at && !p.left_at);
-    const waiting = d.participants.filter((p) => !p.admitted_at && !p.left_at);
+    // Live state from the hub when the room is open; otherwise fall back to the participation log.
+    const media = (p) => p.audio !== undefined ? ` · микрофон ${p.audio ? 'вкл.' : 'выкл.'}, камера ${p.video ? 'вкл.' : 'выкл.'}` : '';
+    const inside = d.live ? d.live.participants.map((p) => ({ display_name: p.name, kind: p.kind, audio: p.audio, video: p.video }))
+      : d.participants.filter((p) => p.admitted_at && !p.left_at);
+    const waiting = d.live ? d.live.queue.map((q) => ({ display_name: q.name }))
+      : d.participants.filter((p) => !p.admitted_at && !p.left_at);
     const box = $('room-detail');
     box.replaceChildren(
       h('div', { class: 'row' }, h('h2', {}, d.room.name), h('span', { class: 'spacer' }),
         h('button', { onclick: () => { openRoomId = null; box.classList.add('hidden'); } }, 'Скрыть')),
-      h('p', { class: 'muted small' }, `Создатель: ${d.room.owner_name || '—'} · хост: ${d.room.host_name || '—'} · ${STATUS_NAMES[d.room.status]}`),
+      h('p', { class: 'muted small' }, `Создатель: ${d.room.owner_name || '—'} · хост: ${d.room.host_name || '—'} · ${STATUS_NAMES[d.room.status]}`
+        + (d.live && !d.live.host_connected ? ' · организатор не в сети (комната закроется через 5 минут)' : '')),
       h('h3', {}, `В комнате (${inside.length})`),
-      inside.length ? h('ul', {}, inside.map((p) => h('li', {}, p.display_name, ' ', h('span', { class: 'badge' }, KIND_NAMES[p.kind])))) : h('p', { class: 'muted' }, 'никого'),
+      inside.length ? h('ul', {}, inside.map((p) => h('li', {}, p.display_name, ' ', h('span', { class: 'badge' }, KIND_NAMES[p.kind]), h('span', { class: 'muted small' }, media(p))))) : h('p', { class: 'muted' }, 'никого'),
       h('h3', {}, `В очереди (${waiting.length})`),
       waiting.length ? h('ul', {}, waiting.map((p) => h('li', {}, p.display_name))) : h('p', { class: 'muted' }, 'пусто'),
       h('h3', {}, `Чат (${d.messages.length})`),
@@ -237,4 +242,5 @@
   });
 
   showTab(location.hash.slice(1) in loaders ? location.hash.slice(1) : 'users');
+  window.addEventListener('hashchange', () => { if (location.hash.slice(1) in loaders) showTab(location.hash.slice(1)); });
 })();
