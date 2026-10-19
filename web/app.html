@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Мои комнаты — Конференции</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="brand">Конференции</span>
+    <a href="/admin" id="admin-link" class="hidden">Админ-панель</a>
+    <span class="spacer"></span>
+    <span id="me" class="muted"></span>
+    <button id="logout">Выйти</button>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Новая комната</h2>
+      <form id="create-form" class="row">
+        <div class="field">
+          <label for="room-name">Название</label>
+          <input id="room-name" maxlength="100" required placeholder="Планёрка отдела">
+        </div>
+        <div class="field">
+          <button class="primary" type="submit">Создать</button>
+        </div>
+      </form>
+      <p class="muted small">До 10 участников. Комната одноразовая: после завершения ссылка перестаёт работать.</p>
+      <p class="error" id="create-error"></p>
+      <div id="created" class="hidden">
+        <p class="notice">Комната создана. Ссылка для приглашения:</p>
+        <p><span class="secret" id="created-url"></span> <button id="copy-url">Копировать</button></p>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Мои комнаты</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Название</th><th>Статус</th><th>Создана</th><th>Ссылка</th><th></th></tr></thead>
+          <tbody id="rooms"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script src="/static/api.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

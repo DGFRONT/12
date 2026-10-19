@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — Конференции</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="center">
+    <form class="card narrow" id="login-form">
+      <h2>Вход</h2>
+      <div class="field">
+        <label for="username">Логин</label>
+        <input id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <p class="error" id="error"></p>
+      <button class="primary" type="submit">Войти</button>
+      <p class="muted small">Учётные записи выдаёт администратор. Гостям достаточно ссылки-приглашения.</p>
+    </form>
+  </div>
+  <script src="/static/api.js"></script>
+  <script src="/static/login.js"></script>
+</body>
+</html>

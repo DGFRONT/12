@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Админ-панель — Конференции</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="brand">Админ-панель</span>
+    <a href="/app">Мои комнаты</a>
+    <span class="spacer"></span>
+    <span id="me" class="muted"></span>
+    <button id="logout">Выйти</button>
+  </header>
+  <main>
+    <nav class="tabs" id="tabs">
+      <button data-tab="users" class="active">Пользователи</button>
+      <button data-tab="rooms">Комнаты</button>
+      <button data-tab="stats">Статистика</button>
+      <button data-tab="data">Данные</button>
+      <button data-tab="audit">Журнал</button>
+      <button data-tab="export">Выгрузка</button>
+    </nav>
+
+    <section data-panel="users">
+      <div class="card">
+        <h2>Регистрация пользователя</h2>
+        <form id="user-form">
+          <div class="row">
+            <div class="field"><label for="u-username">Логин</label>
+              <input id="u-username" required pattern="[a-zA-Z0-9._\-]{3,32}" placeholder="ivanov"></div>
+            <div class="field"><label for="u-name">Отображаемое имя</label>
+              <input id="u-name" required maxlength="64" placeholder="Иван Иванов"></div>
+            <div class="field"><label for="u-password">Пароль</label>
+              <input id="u-password" type="password" minlength="8" autocomplete="new-password" placeholder="пусто — сгенерировать"></div>
+            <div class="field"><label for="u-role">Роль</label>
+              <select id="u-role"><option value="user">пользователь</option><option value="admin">администратор</option></select></div>
+            <div class="field"><button class="primary" type="submit">Зарегистрировать</button></div>
+          </div>
+        </form>
+        <p class="error" id="user-error"></p>
+        <p class="notice hidden" id="user-created"></p>
+      </div>
+      <div class="card">
+        <div class="row">
+          <h2>Пользователи</h2><span class="spacer"></span>
+          <div class="field"><input id="user-search" placeholder="Поиск по логину или имени"></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th>Создан</th><th>Последний вход</th><th></th></tr></thead>
+            <tbody id="users"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="rooms" class="hidden">
+      <div class="card">
+        <div class="row">
+          <h2>Комнаты</h2>
+          <div class="field">
+            <select id="room-status">
+              <option value="active">Идут сейчас</option>
+              <option value="">Все</option>
+              <option value="ended">Завершённые</option>
+              <option value="closed_by_admin">Закрытые админом</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Название</th><th>Хост</th><th>Онлайн</th><th>Статус</th><th>Создана</th><th></th></tr></thead>
+            <tbody id="rooms"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card hidden" id="room-detail"></div>
+    </section>
+
+    <section data-panel="stats" class="hidden">
+      <div class="card">
+        <form class="row" id="stats-form">
+          <div class="field"><label for="s-from">С</label><input id="s-from" type="date"></div>
+          <div class="field"><label for="s-to">По</label><input id="s-to" type="date"></div>
+          <div class="field"><button type="submit">Показать</button></div>
+        </form>
+        <div class="stats" id="stats"></div>
+      </div>
+      <div class="card"><h2>Участники по дням</h2><div class="bars" id="bars"></div><p class="muted small" id="bars-legend"></p></div>
+      <div class="card"><h2>Время в звонках</h2>
+        <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Минут</th><th>Комнат</th></tr></thead><tbody id="top-users"></tbody></table></div>
+      </div>
+    </section>
+
+    <section data-panel="data" class="hidden">
+      <div class="card">
+        <div class="row">
+          <h2>Таблицы БД</h2>
+          <div class="field"><select id="table-name"></select></div>
+        </div>
+        <p class="muted small">Только чтение. Хеши паролей и токенов не показываются.</p>
+        <div class="table-wrap"><table id="table-view"></table></div>
+        <div class="pager"><button id="prev">←</button><span id="page-info" class="muted"></span><button id="next">→</button></div>
+      </div>
+    </section>
+
+    <section data-panel="audit" class="hidden">
+      <div class="card">
+        <h2>Журнал действий</h2>
+        <div class="table-wrap">
+          <table><thead><tr><th>Время</th><th>Кто</th><th>Действие</th><th>Объект</th><th>Детали</th><th>IP</th></tr></thead><tbody id="audit"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section data-panel="export" class="hidden">
+      <div class="card narrow">
+        <h2>Выгрузка всех данных</h2>
+        <p class="muted small">ZIP-архив с JSON-файлом по каждой таблице. Для подтверждения введите свой пароль. Выгрузка записывается в журнал.</p>
+        <form id="export-form">
+          <div class="field"><label for="export-password">Ваш пароль</label>
+            <input id="export-password" type="password" autocomplete="current-password" required></div>
+          <button class="primary" type="submit">Скачать</button>
+        </form>
+        <p class="error" id="export-error"></p>
+      </div>
+    </section>
+  </main>
+  <script src="/static/api.js"></script>
+  <script src="/static/admin.js"></script>
+</body>
+</html>

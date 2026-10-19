@@ -1,0 +1,106 @@
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --text: #1d2129;
+  --muted: #6b7280;
+  --border: #e3e5e9;
+  --accent: #3b5bfd;
+  --accent-text: #ffffff;
+  --danger: #d93d3d;
+  --ok: #1f9d55;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --surface: #1d2026;
+    --text: #e8eaed;
+    --muted: #9aa0a6;
+    --border: #2e323a;
+    --accent: #6d86ff;
+    --danger: #ff6b6b;
+    --ok: #4cc38a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+a { color: var(--accent); }
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+header.top {
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+header.top .brand { font-weight: 700; font-size: 18px; }
+.spacer { flex: 1; }
+
+main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+.center { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; margin-bottom: 16px;
+}
+.card.narrow { width: 100%; max-width: 380px; }
+.card h2 { margin: 0 0 12px; font-size: 18px; }
+
+form .row, .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.field { margin-bottom: 12px; flex: 1; min-width: 160px; }
+input, select {
+  width: 100%; padding: 8px 10px; font: inherit; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+}
+button {
+  padding: 8px 14px; font: inherit; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button.danger { color: var(--danger); }
+button.link { border: none; background: none; color: var(--accent); padding: 0 4px; }
+button:disabled { opacity: .5; cursor: default; }
+
+.error { color: var(--danger); min-height: 1.5em; }
+.notice { color: var(--ok); }
+.secret {
+  font-family: ui-monospace, monospace; background: var(--bg); padding: 2px 6px; border-radius: 6px;
+  user-select: all;
+}
+
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+.tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+td.actions { white-space: nowrap; }
+td pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+
+.badge {
+  display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.badge.admin, .badge.active { color: var(--accent); border-color: var(--accent); }
+.badge.blocked, .badge.closed_by_admin { color: var(--danger); border-color: var(--danger); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.stat { background: var(--bg); border-radius: var(--radius); padding: 12px; }
+.stat .value { font-size: 24px; font-weight: 600; }
+.stat .label { color: var(--muted); font-size: 13px; }
+
+.bars { display: flex; align-items: end; gap: 2px; height: 120px; margin-top: 12px; }
+.bars div { flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 1px; }
+
+.chat-log { max-height: 320px; overflow-y: auto; }
+.chat-log .msg { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.chat-log .msg.deleted { opacity: .5; text-decoration: line-through; }
+
+.pager { display: flex; gap: 8px; align-items: center; margin-top: 12px; }

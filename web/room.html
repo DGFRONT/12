@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Комната — Конференции</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="center">
+    <div class="card narrow">
+      <h2 id="room-name">Загрузка…</h2>
+      <p class="muted" id="room-info"></p>
+
+      <form id="guest-form" class="hidden">
+        <div class="field">
+          <label for="display-name">Как вас представить?</label>
+          <input id="display-name" maxlength="64" required placeholder="Иван Петров">
+        </div>
+        <button class="primary" type="submit" disabled>Попросить войти</button>
+        <p class="muted small">Есть учётная запись? <a id="login-link" href="/">Войдите</a>.</p>
+      </form>
+
+      <div id="member-join" class="hidden">
+        <p>Вы вошли как <b id="member-name"></b>.</p>
+        <button class="primary" disabled>Попросить войти</button>
+      </div>
+
+      <p class="muted small" id="stage-note">
+        Очередь, чат, звук и видео подключаются на следующих этапах разработки.
+      </p>
+    </div>
+  </div>
+  <script src="/static/api.js"></script>
+  <script src="/static/room.js"></script>
+</body>
+</html>
