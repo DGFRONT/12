@@ -35,6 +35,22 @@ docker info >/dev/null 2>&1 || die "нет доступа к Docker: запус�
 ok "Docker $(docker version --format '{{.Server.Version}}'), архитектура $(uname -m)"
 mem=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 [[ "$mem" -ge 1500 ]] && ok "память: ${mem} МБ" || warn "память: ${mem} МБ — для звонков лучше от 2 ГБ"
+# Small servers run out of memory while building the image without swap.
+if [[ "$mem" -lt 2000 && -z "$(swapon --noheadings 2>/dev/null)" ]]; then
+  if [[ "$(id -u)" == 0 ]]; then
+    fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    ok "добавлена подкачка 2 ГБ (/swapfile)"
+  else
+    warn "подкачки нет: sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile"
+  fi
+else
+  sw="$(swapon --noheadings --show=SIZE 2>/dev/null | head -1)"
+  ok "подкачка: ${sw:-нет (памяти достаточно)}"
+fi
+# Docker refuses a CPU limit above the number of cores.
+CPUS=$(nproc); [[ "$CPUS" -gt 2 ]] && CPUS=2
+ok "процессор: $(nproc) ядро(а), лимит сервиса $CPUS"
 
 # Containers of this compose project (docker compose ps would need .env, which may not exist yet).
 RUNNING="$(docker ps -q --filter "label=com.docker.compose.project.working_dir=$(pwd)" | wc -l)"
@@ -88,6 +104,7 @@ else
   chmod 600 .env
   ok ".env создан, секреты сгенерированы"
 fi
+if grep -q '^APP_CPUS=' .env; then sed -i "s/^APP_CPUS=.*/APP_CPUS=$CPUS/" .env; else echo "APP_CPUS=$CPUS" >> .env; fi
 
 # ---------------------------------------------------------------------------
 step "4. Сборка и запуск"
