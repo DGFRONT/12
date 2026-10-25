@@ -73,11 +73,16 @@ PROXY="$(docker ps --filter publish=443 --format '{{.Names}}' | head -1)"
 if [[ -z "$PROXY" ]]; then
   warn "контейнер на 443 не найден — прокси вне Docker, проверки 3.x частично пропущены"
 else
-  ok "прокси: $PROXY"
-  if [[ "$(docker exec "$PROXY" wget -qO- -T 5 http://meet-app:8080/healthz 2>/dev/null)" == "ok" ]]; then
-    ok "прокси видит сервис по имени meet-app"
+  # Our own Caddy (profile "caddy") reaches the app as "app"; a shared proxy as "meet-app".
+  OWN_PROXY=0; UPSTREAM=meet-app
+  if [[ "$(docker inspect "$PROXY" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}')" == "$(pwd)" ]]; then
+    OWN_PROXY=1; UPSTREAM=app
+  fi
+  ok "прокси: $PROXY$([[ $OWN_PROXY == 1 ]] && echo ' (собственный Caddy сервиса)')"
+  if [[ "$(docker exec "$PROXY" wget -qO- -T 5 "http://$UPSTREAM:8080/healthz" 2>/dev/null)" == "ok" ]]; then
+    ok "прокси видит сервис по имени $UPSTREAM"
   else
-    fail "прокси не достаёт до meet-app:8080"
+    fail "прокси не достаёт до $UPSTREAM:8080"
     if [[ -z "$APP_ID" ]]; then
       hint "приложение не запущено — см. пункт 1"
     else
@@ -185,7 +190,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-if [[ -n "${PROXY:-}" ]]; then
+if [[ -n "${PROXY:-}" && "${OWN_PROXY:-0}" == 0 ]]; then
   step "6. Ваши сайты на том же прокси"
   CF="$(docker inspect "$PROXY" --format '{{range .Mounts}}{{if eq .Destination "/etc/caddy/Caddyfile"}}{{.Source}}{{end}}{{end}}')"
   if [[ -n "$CF" && -r "$CF" ]]; then

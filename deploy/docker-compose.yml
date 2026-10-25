@@ -80,7 +80,7 @@ services:
       - --external-ip=${PUBLIC_IP:-127.0.0.1}
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.10-alpine
     profiles: ["caddy"]
     restart: unless-stopped
     depends_on: [app]
